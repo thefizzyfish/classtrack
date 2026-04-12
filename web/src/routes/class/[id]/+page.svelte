@@ -185,7 +185,7 @@
                          {settingArchived ? 'border-amber-400 bg-amber-400' : 'border-current'}">
               {#if settingArchived}<span class="text-bg text-[8px] leading-none font-bold">✓</span>{/if}
             </span>
-            {settingArchived ? 'Archived' : 'Active'}
+            {settingArchived ? 'True' : 'False'}
           </button>
         </div>
       </div>
