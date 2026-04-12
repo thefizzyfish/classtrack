@@ -240,6 +240,26 @@ func (s *Store) loadTasksForClass(classID string) ([]Task, error) {
 	return result, nil
 }
 
+// UpdateClass sets the semester label and archived flag for an existing class.
+func (s *Store) UpdateClass(id, semester string, archived bool) error {
+	archivedInt := 0
+	if archived {
+		archivedInt = 1
+	}
+	res, err := s.db.Exec(
+		`UPDATE classes SET semester=?, archived=? WHERE id=?`,
+		semester, archivedInt, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("class not found: %s", id)
+	}
+	return nil
+}
+
 // CreateClass inserts a new class and returns its derived ID.
 // Returns an error containing "UNIQUE" if a class with that name already exists.
 func (s *Store) CreateClass(name, semester string) (string, error) {

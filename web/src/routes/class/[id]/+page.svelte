@@ -7,6 +7,13 @@
   let loading = true;
   let error = '';
 
+  // Class settings
+  let settingsOpen = false;
+  let settingSemester = '';
+  let settingArchived = false;
+  let settingSaving = false;
+  let settingsError = '';
+
   const today = new Date().toISOString().slice(0, 10);
 
   $: id = $page.params.id;
@@ -14,16 +21,31 @@
 
   onMount(async () => {
     try {
-      // fetch all classes to find color index
       const all = await api.getClasses();
       colorIdx = all.findIndex(c => c.id === id);
       cls = all.find(c => c.id === id) ?? await api.getClass(id);
+      settingSemester = cls?.semester ?? '';
+      settingArchived = cls?.archived ?? false;
     } catch (e) {
       error = e.message;
     } finally {
       loading = false;
     }
   });
+
+  async function saveSettings() {
+    settingSaving = true;
+    settingsError = '';
+    try {
+      await api.updateClass(id, { semester: settingSemester, archived: settingArchived });
+      cls = await api.getClass(id);
+      settingsOpen = false;
+    } catch (e) {
+      settingsError = e.message;
+    } finally {
+      settingSaving = false;
+    }
+  }
 
   async function toggle(task) {
     const next = !task.completed;
@@ -87,10 +109,93 @@
   {@const pl = paceLabel(cls.stats.onPaceScore)}
 
   <!-- Header -->
-  <div class="mb-6">
-    <span class="text-xs {color.text} font-mono uppercase tracking-wider">{cls.id}</span>
-    <h1 class="text-3xl font-semibold text-text mt-1">{cls.name}</h1>
+  <div class="flex items-start justify-between mb-6">
+    <div>
+      <span class="text-xs {color.text} font-mono uppercase tracking-wider">{cls.id}</span>
+      <h1 class="text-3xl font-semibold text-text mt-1">{cls.name}</h1>
+      {#if cls.semester}
+        <span class="text-sm text-dim mt-0.5 block">{cls.semester}</span>
+      {/if}
+    </div>
+    <button
+      class="mt-1 p-1.5 rounded-lg text-dim hover:text-text hover:bg-surface transition-colors"
+      on:click={() => { settingsOpen = !settingsOpen; settingsError = ''; }}
+      title="Class settings"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06
+                 a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09
+                 A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83
+                 l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09
+                 A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83
+                 l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09
+                 a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83
+                 l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09
+                 a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
   </div>
+
+  <!-- Settings panel -->
+  {#if settingsOpen}
+    <div class="mb-6 rounded-xl border border-border bg-surface p-4 space-y-4">
+      <div class="text-xs font-medium text-dim uppercase tracking-wide">Class Settings</div>
+
+      <div class="flex gap-3 items-end">
+        <div class="flex-1">
+          <label class="block text-xs text-dim mb-1.5">Semester</label>
+          <input
+            bind:value={settingSemester}
+            placeholder="e.g. Spring 2026"
+            class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text
+                   focus:outline-none focus:border-indigo-500"
+            on:keydown={e => e.key === 'Enter' && saveSettings()}
+          />
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs text-dim">Archived</label>
+          <button
+            class="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors
+                   {settingArchived
+                     ? 'border-amber-600/50 bg-amber-900/20 text-amber-400'
+                     : 'border-border bg-bg text-dim hover:border-indigo-500'}"
+            on:click={() => settingArchived = !settingArchived}
+          >
+            <span class="w-3 h-3 rounded-sm border-2 flex items-center justify-center shrink-0
+                         {settingArchived ? 'border-amber-400 bg-amber-400' : 'border-current'}">
+              {#if settingArchived}<span class="text-bg text-[8px] leading-none font-bold">✓</span>{/if}
+            </span>
+            {settingArchived ? 'Archived' : 'Active'}
+          </button>
+        </div>
+      </div>
+
+      {#if settingArchived}
+        <p class="text-xs text-amber-400/80">
+          Archived classes are hidden from the dashboard and weekly view but included in heatmap history.
+        </p>
+      {/if}
+
+      {#if settingsError}
+        <p class="text-xs text-red-400">{settingsError}</p>
+      {/if}
+
+      <div class="flex gap-2">
+        <button
+          class="btn-primary text-sm"
+          on:click={saveSettings}
+          disabled={settingSaving}
+        >{settingSaving ? 'Saving…' : 'Save'}</button>
+        <button
+          class="btn-ghost text-sm"
+          on:click={() => { settingsOpen = false; settingSemester = cls.semester ?? ''; settingArchived = cls.archived ?? false; }}
+        >Cancel</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Stats strip -->
   <div class="grid grid-cols-4 gap-3 mb-6">

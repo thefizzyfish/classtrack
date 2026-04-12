@@ -50,6 +50,27 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		c.JSON(http.StatusCreated, gin.H{"id": id})
 	})
 
+	// PATCH /api/classes/:id  body: {"semester": "Spring 2026", "archived": false}
+	api.PATCH("/classes/:id", func(c *gin.Context) {
+		var body struct {
+			Semester string `json:"semester"`
+			Archived bool   `json:"archived"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.UpdateClass(c.Param("id"), body.Semester, body.Archived); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
 	// GET /api/classes/:id
 	api.GET("/classes/:id", func(c *gin.Context) {
 		cls, ok := store.GetClass(c.Param("id"))
