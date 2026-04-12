@@ -1,5 +1,10 @@
 package main
 
+import (
+	"strings"
+	"time"
+)
+
 type TaskType string
 
 const (
@@ -18,8 +23,48 @@ var taskPoints = map[TaskType]int{
 	TaskTypeOther:      10,
 }
 
+// months maps month abbreviations to time.Month (shared by canvas parser and migration).
+var months = map[string]time.Month{
+	"Jan": time.January, "Feb": time.February, "Mar": time.March,
+	"Apr": time.April, "May": time.May, "Jun": time.June,
+	"Jul": time.July, "Aug": time.August, "Sep": time.September,
+	"Oct": time.October, "Nov": time.November, "Dec": time.December,
+}
+
+// classifyTask returns the TaskType inferred from keywords in text.
+func classifyTask(text string) TaskType {
+	lower := strings.ToLower(text)
+	if containsAny(lower, "exam", "honorlock", "midterm", "final exam") {
+		return TaskTypeExam
+	}
+	if containsAny(lower, "quiz") {
+		return TaskTypeQuiz
+	}
+	if containsAny(lower, "discussion") {
+		return TaskTypeDiscussion
+	}
+	if containsAny(lower, "assignment", "lab", "simulation", "capstone", "project", "portfolio") {
+		return TaskTypeAssignment
+	}
+	return TaskTypeOther
+}
+
+func containsAny(s string, words ...string) bool {
+	for _, w := range words {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// sundayOfWeek returns the Sunday of the week containing t (local time).
+func sundayOfWeek(t time.Time) time.Time {
+	return t.AddDate(0, 0, -int(t.Weekday()))
+}
+
 type Task struct {
-	ID          string   `json:"id"`
+	ID          int64    `json:"id"`
 	Text        string   `json:"text"`
 	Completed   bool     `json:"completed"`
 	CompletedAt *string  `json:"completedAt"` // YYYY-MM-DD or nil
@@ -27,12 +72,7 @@ type Task struct {
 	Week        string   `json:"week"`        // Sunday of the week, YYYY-MM-DD
 	Type        TaskType `json:"type"`
 	Points      int      `json:"points"`
-	Indent      int      `json:"indent"`
 	Subtasks    []Task   `json:"subtasks,omitempty"`
-	// private — not serialised
-	lineNum  int
-	filePath string
-	classID  string
 }
 
 type ClassStats struct {
@@ -48,16 +88,15 @@ type ClassStats struct {
 type Class struct {
 	ID       string     `json:"id"`
 	Name     string     `json:"name"`
-	File     string     `json:"file"`
 	Tasks    []Task     `json:"tasks"`
 	Created  string     `json:"created"`
-	Semester string     `json:"semester"` // e.g. "Spring 2026"
+	Semester string     `json:"semester"`
 	Archived bool       `json:"archived"`
 	Stats    ClassStats `json:"stats"`
 }
 
 type TaskSummary struct {
-	ID        string   `json:"id"`
+	ID        int64    `json:"id"`
 	ClassID   string   `json:"classID"`
 	ClassName string   `json:"className"`
 	Text      string   `json:"text"`
@@ -68,8 +107,8 @@ type TaskSummary struct {
 }
 
 type WeekSummary struct {
-	WeekStart string                 `json:"weekStart"`
-	WeekEnd   string                 `json:"weekEnd"`
+	WeekStart string                   `json:"weekStart"`
+	WeekEnd   string                   `json:"weekEnd"`
 	ByDay     map[string][]TaskSummary `json:"byDay"`
 }
 

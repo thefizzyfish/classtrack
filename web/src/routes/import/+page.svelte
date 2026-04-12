@@ -154,7 +154,8 @@
             />
           </div>
           <div class="text-xs text-dim">
-            Creates <code class="text-indigo-300">NVCC/{newClassName || 'Class Name'}/{newClassName || 'Class Name'} Todo.md</code>
+            Creates a new class in the database with ID
+            <code class="text-indigo-300">{(newClassName || 'class-name').toLowerCase().replace(/\s+/g, '-')}</code>
           </div>
           <div class="flex gap-2">
             <button class="btn-primary text-sm" on:click={createClass} disabled={creatingClass || !newClassName.trim()}>

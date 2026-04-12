@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,8 +12,8 @@ import (
 func setupRoutes(r *gin.Engine, store *Store) {
 	api := r.Group("/api")
 
-	// GET /api/classes        — active classes only
-	// GET /api/classes?all=1  — include archived
+	// GET /api/classes        — active (non-archived) classes
+	// GET /api/classes?all=true — all classes including archived
 	api.GET("/classes", func(c *gin.Context) {
 		if c.Query("all") == "true" {
 			c.JSON(http.StatusOK, store.GetAllClasses())
@@ -24,8 +22,7 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		}
 	})
 
-	// POST /api/classes — create a new class (dir + Todo.md)
-	// body: {"name": "CS 101", "semester": "Fall 2026"}
+	// POST /api/classes  body: {"name": "CS 101", "semester": "Fall 2026"}
 	api.POST("/classes", func(c *gin.Context) {
 		var body struct {
 			Name     string `json:"name"`
@@ -41,49 +38,35 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			return
 		}
 
-		dir := filepath.Join(store.VaultPath(), body.Name)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		filePath := filepath.Join(dir, body.Name+" Todo.md")
-		if _, err := os.Stat(filePath); err == nil {
-			c.JSON(http.StatusConflict, gin.H{"error": "class already exists"})
-			return
-		}
-
-		frontmatter := "---\ntags: [nvcc, todo]\ncreated: " + time.Now().Format("2006-01-02")
-		if body.Semester != "" {
-			frontmatter += "\nsemester: " + body.Semester
-		}
-		frontmatter += "\n---\n# " + body.Name + " Todo\n"
-
-		if err := os.WriteFile(filePath, []byte(frontmatter), 0644); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		store.Reload()
-		c.JSON(http.StatusCreated, gin.H{"id": strings.ToLower(strings.ReplaceAll(body.Name, " ", "-"))})
-	})
-
-	// GET /api/classes/:id — single class with all tasks
-	api.GET("/classes/:id", func(c *gin.Context) {
-		id := c.Param("id")
-		for _, cl := range store.GetClasses() {
-			if cl.ID == id {
-				c.JSON(http.StatusOK, cl)
+		id, err := store.CreateClass(body.Name, body.Semester)
+		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				c.JSON(http.StatusConflict, gin.H{"error": "class already exists"})
 				return
 			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
+		c.JSON(http.StatusCreated, gin.H{"id": id})
+	})
+
+	// GET /api/classes/:id
+	api.GET("/classes/:id", func(c *gin.Context) {
+		cls, ok := store.GetClass(c.Param("id"))
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
+			return
+		}
+		c.JSON(http.StatusOK, cls)
 	})
 
 	// PATCH /api/tasks/:id/toggle  body: {"completed": true|false}
 	api.PATCH("/tasks/:id/toggle", func(c *gin.Context) {
-		taskID := c.Param("id")
-
+		taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
+			return
+		}
 		var body struct {
 			Completed bool `json:"completed"`
 		}
@@ -91,38 +74,10 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		// parse classID:lineNum from task ID
-		idx := strings.LastIndex(taskID, ":")
-		if idx < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task id"})
-			return
-		}
-		classID := taskID[:idx]
-		var lineNum int
-		if _, err := fmt.Sscanf(taskID[idx+1:], "%d", &lineNum); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid line number"})
-			return
-		}
-
-		var filePath string
-		for _, cl := range store.GetClasses() {
-			if cl.ID == classID {
-				filePath = cl.File
-				break
-			}
-		}
-		if filePath == "" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
-			return
-		}
-
-		if err := toggleTask(filePath, lineNum, body.Completed); err != nil {
+		if err := store.ToggleTask(taskID, body.Completed); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		store.Reload()
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
@@ -145,17 +100,17 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		c.JSON(http.StatusOK, computeBurndown(store.GetClasses()))
 	})
 
-	// GET /api/stats/summary — lightweight counts for nav badges
+	// GET /api/stats/summary — lightweight badge counts for nav
 	api.GET("/stats/summary", func(c *gin.Context) {
 		c.JSON(http.StatusOK, computeSummary(store.GetClasses()))
 	})
 
-	// GET /api/stats/heatmap — always includes archived classes for full history
+	// GET /api/stats/heatmap — includes archived classes for full history
 	api.GET("/stats/heatmap", func(c *gin.Context) {
 		c.JSON(http.StatusOK, computeHeatmap(store.GetAllClasses()))
 	})
 
-	// POST /api/import  body: {"classId": "itn-106", "text": "<paste>"}
+	// POST /api/import  body: {"classId": "itn-106", "text": "<canvas paste>"}
 	api.POST("/import", func(c *gin.Context) {
 		var body struct {
 			ClassID string `json:"classId"`
@@ -165,23 +120,17 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		var filePath string
-		var baseYear = time.Now().Year()
-		for _, cl := range store.GetClasses() {
-			if cl.ID == body.ClassID {
-				filePath = cl.File
-				if cl.Created != "" {
-					if t, err := time.Parse("2006-01-02", cl.Created); err == nil {
-						baseYear = t.Year()
-					}
-				}
-				break
-			}
-		}
-		if filePath == "" {
+		cls, ok := store.GetClass(body.ClassID)
+		if !ok {
 			c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
 			return
+		}
+
+		baseYear := time.Now().Year()
+		if cls.Created != "" {
+			if t, err := time.Parse("2006-01-02", cls.Created); err == nil {
+				baseYear = t.Year()
+			}
 		}
 
 		tasks, err := parseCanvasPaste(body.Text, baseYear)
@@ -189,17 +138,15 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		if err := appendCanvasTasks(filePath, tasks); err != nil {
+		n, err := store.ImportCanvasTasks(body.ClassID, tasks)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		store.Reload()
-		c.JSON(http.StatusOK, gin.H{"imported": len(tasks)})
+		c.JSON(http.StatusOK, gin.H{"imported": n})
 	})
 
-	// POST /api/import/preview  — parse without writing
+	// POST /api/import/preview — parse without writing
 	api.POST("/import/preview", func(c *gin.Context) {
 		var body struct {
 			Text     string `json:"text"`
@@ -217,13 +164,13 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		type preview struct {
+		type previewItem struct {
 			Date string `json:"date"`
 			Text string `json:"text"`
 		}
-		var result []preview
+		result := make([]previewItem, 0, len(tasks))
 		for _, t := range tasks {
-			result = append(result, preview{
+			result = append(result, previewItem{
 				Date: t.Date.Format("2006-01-02"),
 				Text: t.Text,
 			})

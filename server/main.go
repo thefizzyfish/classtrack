@@ -1,120 +1,35 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-// Store holds the parsed vault state with an RW lock.
-type Store struct {
-	mu      sync.RWMutex
-	classes []Class
-	vault   string
-}
-
-func NewStore(vaultPath string) *Store {
-	s := &Store{vault: vaultPath}
-	if err := s.Reload(); err != nil {
-		log.Printf("initial load error: %v", err)
-	}
-	return s
-}
-
-func (s *Store) Reload() error {
-	classes, err := discoverClasses(s.vault)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.classes = classes
-	s.mu.Unlock()
-	log.Printf("vault reloaded: %d class(es)", len(classes))
-	return nil
-}
-
-// GetClasses returns only non-archived classes.
-func (s *Store) GetClasses() []Class {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var active []Class
-	for _, c := range s.classes {
-		if !c.Archived {
-			active = append(active, c)
-		}
-	}
-	return active
-}
-
-// GetAllClasses returns all classes including archived ones.
-func (s *Store) GetAllClasses() []Class {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.classes
-}
-
-// VaultPath returns the watched vault directory.
-func (s *Store) VaultPath() string { return s.vault }
-
 func main() {
-	vaultPath := filepath.Join(os.Getenv("HOME"), "Obsidian", "Obsidian_Vault", "NVCC")
+	migrateFlag := flag.Bool("migrate", false, "import Obsidian markdown vault into SQLite and exit")
+	dbPath := flag.String("db", filepath.Join(os.Getenv("HOME"), ".classtrack.db"), "SQLite database path")
+	vaultPath := flag.String("vault",
+		filepath.Join(os.Getenv("HOME"), "Obsidian", "Obsidian_Vault", "NVCC"),
+		"Obsidian vault path (only used with --migrate)",
+	)
+	flag.Parse()
 
-	store := NewStore(vaultPath)
-
-	// File watcher — debounced reload on any change under the vault
-	watcher, err := fsnotify.NewWatcher()
+	store, err := NewStore(*dbPath)
 	if err != nil {
-		log.Fatalf("watcher: %v", err)
+		log.Fatalf("open db: %v", err)
 	}
-	defer watcher.Close()
 
-	var debounce *time.Timer
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				// If a new directory appears, watch it so files created inside are tracked
-				if event.Has(fsnotify.Create) {
-					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-						watcher.Add(event.Name)
-						log.Printf("watching new dir: %s", event.Name)
-					}
-				}
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					if debounce != nil {
-						debounce.Stop()
-					}
-					debounce = time.AfterFunc(500*time.Millisecond, func() {
-						if err := store.Reload(); err != nil {
-							log.Printf("reload error: %v", err)
-						}
-					})
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				log.Printf("watcher error: %v", err)
-			}
+	if *migrateFlag {
+		if err := runMigration(store.db, *vaultPath); err != nil {
+			log.Fatalf("migration failed: %v", err)
 		}
-	}()
-
-	// Watch all directories under vault recursively
-	_ = filepath.Walk(vaultPath, func(path string, info os.FileInfo, err error) error {
-		if err == nil && info.IsDir() {
-			watcher.Add(path)
-		}
-		return nil
-	})
+		return
+	}
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -127,7 +42,7 @@ func main() {
 
 	setupRoutes(r, store)
 
-	// Serve built SvelteKit app (production)
+	// Serve built SvelteKit app if present (production single-binary mode)
 	webBuild := filepath.Join("..", "web", "build")
 	if _, err := os.Stat(webBuild); err == nil {
 		r.Static("/assets", filepath.Join(webBuild, "assets"))

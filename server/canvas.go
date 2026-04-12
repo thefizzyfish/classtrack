@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -18,11 +17,15 @@ var junkPhrases = []string{
 	"assignment start", "assignment end", "nvrk",
 }
 
+// CanvasTask is a single task parsed from a Canvas calendar paste.
 type CanvasTask struct {
 	Date time.Time
 	Text string
 }
 
+// parseCanvasPaste parses the tab-separated Canvas calendar export.
+// The date column carries forward when blank (Canvas's sparse format).
+// baseYear is accepted for API compatibility but Canvas dates include the year.
 func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 	var tasks []CanvasTask
 	var currentDate time.Time
@@ -36,7 +39,7 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 			continue
 		}
 
-		// skip the header row
+		// Skip the header row
 		if first {
 			first = false
 			if strings.HasPrefix(strings.ToLower(trimmed), "date\t") ||
@@ -45,9 +48,7 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 			}
 		}
 
-		// split on tab to get columns
 		parts := strings.Split(line, "\t")
-
 		var taskText string
 
 		switch {
@@ -63,10 +64,10 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 				taskText = strings.TrimSpace(parts[1])
 			}
 		case strings.TrimSpace(parts[0]) == "" && len(parts) > 1:
-			// empty first column, task in second
+			// Blank first column — date carries forward
 			taskText = strings.TrimSpace(parts[1])
 		default:
-			// no date column at all — whole thing is a task name
+			// No date column at all
 			taskText = strings.TrimSpace(parts[0])
 		}
 
@@ -74,15 +75,12 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 			continue
 		}
 
-		// strip trailing "due by ..." that may be embedded
+		// Strip embedded tab suffix ("due by ...")
 		if idx := strings.Index(taskText, "\t"); idx != -1 {
 			taskText = taskText[:idx]
 		}
 
-		// strip type prefix
-		taskText = stripCanvasPrefix(taskText)
-		taskText = strings.TrimSpace(taskText)
-
+		taskText = strings.TrimSpace(stripCanvasPrefix(taskText))
 		if isJunk(taskText) {
 			continue
 		}
@@ -109,68 +107,4 @@ func isJunk(s string) bool {
 		}
 	}
 	return false
-}
-
-// appendCanvasTasks writes new tasks into the todo file, grouped under ## Mon DD headers.
-// Tasks whose date header already exists in the file are skipped (to avoid duplicates).
-func appendCanvasTasks(filePath string, tasks []CanvasTask) error {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-
-	// find which "Mon DD" headers already exist
-	existing := make(map[string]bool)
-	for _, l := range lines {
-		if m := h2DateRe.FindStringSubmatch(l); m != nil {
-			existing[m[1]+"-"+m[2]] = true
-		}
-	}
-
-	// group tasks by date, preserving order
-	type group struct {
-		key   string // "Mon-D" for dedup check
-		label string // "## Mon D"
-		tasks []string
-	}
-	var groups []group
-	groupIdx := map[string]int{}
-
-	monthAbbrev := map[time.Month]string{
-		time.January: "Jan", time.February: "Feb", time.March: "Mar",
-		time.April: "Apr", time.May: "May", time.June: "Jun",
-		time.July: "Jul", time.August: "Aug", time.September: "Sep",
-		time.October: "Oct", time.November: "Nov", time.December: "Dec",
-	}
-
-	for _, t := range tasks {
-		abbr := monthAbbrev[t.Date.Month()]
-		key := fmt.Sprintf("%s-%d", abbr, t.Date.Day())
-		if existing[key] {
-			continue
-		}
-		if _, ok := groupIdx[key]; !ok {
-			groupIdx[key] = len(groups)
-			groups = append(groups, group{
-				key:   key,
-				label: fmt.Sprintf("## %s %d", abbr, t.Date.Day()),
-			})
-		}
-		idx := groupIdx[key]
-		groups[idx].tasks = append(groups[idx].tasks, "- [ ] "+t.Text)
-	}
-
-	if len(groups) == 0 {
-		return nil // nothing to add
-	}
-
-	var appended []string
-	for _, g := range groups {
-		appended = append(appended, "", g.label)
-		appended = append(appended, g.tasks...)
-	}
-
-	lines = append(lines, appended...)
-	return writeLines(filePath, lines)
 }
