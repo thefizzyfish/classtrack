@@ -1,7 +1,7 @@
 package main
 
 // migrate.go — one-time import of Obsidian markdown todo files into SQLite.
-// Run with: go run . --migrate [--vault /path/to/NVCC]
+// Run with: go run . --migrate --vault /path/to/your/todo/files
 //
 // After a successful migration this file can be deleted along with parser.go.
 // The main server binary does not call any of these functions at runtime.

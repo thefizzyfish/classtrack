@@ -11,12 +11,9 @@ import (
 )
 
 func main() {
-	migrateFlag := flag.Bool("migrate", false, "import Obsidian markdown vault into SQLite and exit")
+	migrateFlag := flag.Bool("migrate", false, "import markdown todo files into SQLite and exit")
 	dbPath := flag.String("db", filepath.Join(os.Getenv("HOME"), ".classtrack.db"), "SQLite database path")
-	vaultPath := flag.String("vault",
-		filepath.Join(os.Getenv("HOME"), "Obsidian", "Obsidian_Vault", "NVCC"),
-		"Obsidian vault path (only used with --migrate)",
-	)
+	vaultPath := flag.String("vault", "", "directory to walk for *Todo.md files (required with --migrate)")
 	flag.Parse()
 
 	store, err := NewStore(*dbPath)
@@ -25,6 +22,9 @@ func main() {
 	}
 
 	if *migrateFlag {
+		if *vaultPath == "" {
+			log.Fatal("--vault is required with --migrate: specify the directory containing your todo files")
+		}
 		if err := runMigration(store.db, *vaultPath); err != nil {
 			log.Fatalf("migration failed: %v", err)
 		}

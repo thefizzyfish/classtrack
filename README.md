@@ -53,16 +53,16 @@ cd web && npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-### 3. (Optional) Migrate from Obsidian markdown
+### 3. (Optional) Migrate from markdown todo files
 
-If you have existing todo files in an Obsidian vault, import them into the database:
+If you have existing `*Todo.md` files, import them into the database:
 
 ```bash
 cd server
-go run . --migrate --vault ~/path/to/your/NVCC
+go run . --migrate --vault ~/path/to/your/todo/directory
 ```
 
-This walks the vault for `*Todo.md` files and inserts all classes, tasks, and historical completion dates. Safe to re-run after a partial failure. After a successful migration, `migrate.go` can be deleted.
+This walks the directory for `*Todo.md` files and inserts all classes, tasks, and historical `✅ YYYY-MM-DD` completion dates. Safe to re-run after a partial failure. After a successful migration, `migrate.go` can be deleted from the server directory.
 
 ## Database
 
@@ -96,16 +96,6 @@ The parser strips type prefixes (`Assignment`, `Quiz`, `Discussion Topic`), carr
 
 On any class detail page, click the **⚙** gear icon to open class settings. Toggle **Archived** and save. The class disappears from the dashboard and weekly view but its completion history remains in the heatmap.
 
-## Daily reminder (macOS, optional)
-
-```bash
-# Edit the plist to point at your classtrack path, then:
-cp scripts/com.classtrack.remind.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.classtrack.remind.plist
-```
-
-Fires a macOS notification at 8am with overdue/due-today counts. Silently skips if the server isn't running.
-
 ## Project structure
 
 ```
@@ -130,9 +120,6 @@ classtrack/
 │       └── lib/
 │           ├── api.js     # fetch wrapper and helpers
 │           └── stores.js  # shared nav badge state
-├── scripts/
-│   ├── remind.sh                    # osascript notification
-│   └── com.classtrack.remind.plist  # launchd job (8am daily)
 └── start.sh                         # launches both processes
 ```
 
