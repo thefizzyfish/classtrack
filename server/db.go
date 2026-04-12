@@ -240,6 +240,40 @@ func (s *Store) loadTasksForClass(classID string) ([]Task, error) {
 	return result, nil
 }
 
+// DeleteClass permanently removes an archived class and all its tasks and events.
+// Returns an error if the class is not found or is not archived — callers must
+// archive first to prevent accidental deletion of active data.
+func (s *Store) DeleteClass(id string) error {
+	var archived int
+	err := s.db.QueryRow(`SELECT archived FROM classes WHERE id=?`, id).Scan(&archived)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("class not found: %s", id)
+	}
+	if err != nil {
+		return err
+	}
+	if archived != 1 {
+		return fmt.Errorf("class must be archived before deletion")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM task_events WHERE task_id IN (SELECT id FROM tasks WHERE class_id=?)`, id); err != nil {
+		return fmt.Errorf("delete events: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM tasks WHERE class_id=?`, id); err != nil {
+		return fmt.Errorf("delete tasks: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM classes WHERE id=?`, id); err != nil {
+		return fmt.Errorf("delete class: %w", err)
+	}
+	return tx.Commit()
+}
+
 // UpdateClass sets the semester label and archived flag for an existing class.
 func (s *Store) UpdateClass(id, semester string, archived bool) error {
 	archivedInt := 0

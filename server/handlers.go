@@ -71,6 +71,23 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
+	// DELETE /api/classes/:id — permanently delete an archived class
+	// The class must be archived first; active classes are rejected with 409.
+	api.DELETE("/classes/:id", func(c *gin.Context) {
+		if err := store.DeleteClass(c.Param("id")); err != nil {
+			switch {
+			case strings.Contains(err.Error(), "not found"):
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			case strings.Contains(err.Error(), "must be archived"):
+				c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
 	// GET /api/classes/:id
 	api.GET("/classes/:id", func(c *gin.Context) {
 		cls, ok := store.GetClass(c.Param("id"))

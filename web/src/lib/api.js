@@ -17,7 +17,8 @@ async function req(method, path, body) {
 export const api = {
   getClasses:      ()             => req('GET',   '/classes'),
   getClass:        (id)           => req('GET',   `/classes/${id}`),
-  updateClass:     (id, data)     => req('PATCH', `/classes/${id}`, data),
+  updateClass:     (id, data)     => req('PATCH',  `/classes/${id}`, data),
+  deleteClass:     (id)           => req('DELETE', `/classes/${id}`),
   toggleTask:      (id, completed)=> req('PATCH', `/tasks/${id}/toggle`, { completed }),
   getWeek:         (date)         => req('GET',   `/week${date ? `?date=${date}` : ''}`),
   getBurndown:     ()             => req('GET',   '/stats/burndown'),

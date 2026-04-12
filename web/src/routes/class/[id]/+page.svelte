@@ -14,6 +14,10 @@
   let settingSaving = false;
   let settingsError = '';
 
+  // Deletion (only available when archived)
+  let deleteConfirmText = '';
+  let deleting = false;
+
   const today = new Date().toISOString().slice(0, 10);
 
   $: id = $page.params.id;
@@ -44,6 +48,19 @@
       settingsError = e.message;
     } finally {
       settingSaving = false;
+    }
+  }
+
+  async function deleteClass() {
+    if (deleteConfirmText !== cls.name || deleting) return;
+    deleting = true;
+    settingsError = '';
+    try {
+      await api.deleteClass(id);
+      window.location.href = '/';
+    } catch (e) {
+      settingsError = e.message;
+      deleting = false;
     }
   }
 
@@ -119,7 +136,7 @@
     </div>
     <button
       class="mt-1 p-1.5 rounded-lg text-dim hover:text-text hover:bg-surface transition-colors"
-      on:click={() => { settingsOpen = !settingsOpen; settingsError = ''; }}
+      on:click={() => { settingsOpen = !settingsOpen; settingsError = ''; deleteConfirmText = ''; }}
       title="Class settings"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none"
@@ -191,9 +208,37 @@
         >{settingSaving ? 'Saving…' : 'Save'}</button>
         <button
           class="btn-ghost text-sm"
-          on:click={() => { settingsOpen = false; settingSemester = cls.semester ?? ''; settingArchived = cls.archived ?? false; }}
+          on:click={() => { settingsOpen = false; settingSemester = cls.semester ?? ''; settingArchived = cls.archived ?? false; deleteConfirmText = ''; }}
         >Cancel</button>
       </div>
+
+      {#if cls.archived}
+        <div class="border-t border-red-900/40 pt-4 space-y-3">
+          <div class="text-xs font-medium text-red-400 uppercase tracking-wide">Danger Zone</div>
+          <p class="text-xs text-dim">
+            Permanently deletes this class and all its tasks and completion history. Cannot be undone.
+          </p>
+          <div>
+            <label class="block text-xs text-dim mb-1.5">
+              Type <span class="font-mono text-text">{cls.name}</span> to confirm
+            </label>
+            <input
+              bind:value={deleteConfirmText}
+              placeholder={cls.name}
+              class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text
+                     focus:outline-none focus:border-red-500"
+            />
+          </div>
+          <button
+            class="px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                   {deleteConfirmText === cls.name && !deleting
+                     ? 'bg-red-700 hover:bg-red-600 text-white cursor-pointer'
+                     : 'bg-bg border border-border text-dim cursor-not-allowed opacity-50'}"
+            disabled={deleteConfirmText !== cls.name || deleting}
+            on:click={deleteClass}
+          >{deleting ? 'Deleting…' : 'Delete class permanently'}</button>
+        </div>
+      {/if}
     </div>
   {/if}
 
