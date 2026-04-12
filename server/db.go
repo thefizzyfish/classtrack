@@ -6,11 +6,16 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// validClassID matches IDs that are safe to use as URL path segments and
+// database keys: lowercase alphanumeric words joined by hyphens.
+var validClassID = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Store wraps a SQLite database connection and provides all data access methods.
 type Store struct {
@@ -296,8 +301,18 @@ func (s *Store) UpdateClass(id, semester string, archived bool) error {
 
 // CreateClass inserts a new class and returns its derived ID.
 // Returns an error containing "UNIQUE" if a class with that name already exists.
+// Returns an error containing "invalid name" if the name produces an unusable ID
+// (e.g. names that are purely punctuation or non-ASCII).
 func (s *Store) CreateClass(name, semester string) (string, error) {
 	id := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	// Strip any characters outside [a-z0-9-] that snuck through
+	id = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(id, "")
+	// Collapse multiple consecutive hyphens and trim leading/trailing hyphens
+	id = regexp.MustCompile(`-{2,}`).ReplaceAllString(id, "-")
+	id = strings.Trim(id, "-")
+	if !validClassID.MatchString(id) {
+		return "", fmt.Errorf("invalid name: produces an empty or unusable class ID")
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO classes (id, name, semester, created_at) VALUES (?, ?, ?, ?)`,
 		id, name, semester, time.Now().Format("2006-01-02"),

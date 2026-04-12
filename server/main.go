@@ -3,12 +3,17 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
+
+// maxBodyBytes is the largest request body the server will accept.
+// A full-semester Canvas paste is ~20 KB; 512 KB is a generous ceiling.
+const maxBodyBytes = 512 * 1024
 
 func main() {
 	migrateFlag := flag.Bool("migrate", false, "import markdown todo files into SQLite and exit")
@@ -39,6 +44,12 @@ func main() {
 		AllowMethods: []string{"GET", "POST", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Content-Type"},
 	}))
+
+	// Enforce a request body size limit on all routes.
+	r.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBodyBytes)
+		c.Next()
+	})
 
 	setupRoutes(r, store)
 

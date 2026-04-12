@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -8,6 +9,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const (
+	maxNameLen     = 100 // class name
+	maxSemesterLen = 50  // semester label
+)
+
+// internalErr logs the full error server-side and returns a generic 500 to the
+// client. Never expose raw err.Error() in 500 responses — it can leak schema
+// details, file paths, or other internals.
+func internalErr(c *gin.Context, err error) {
+	log.Printf("internal error [%s %s]: %v", c.Request.Method, c.Request.URL.Path, err)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+}
 
 func setupRoutes(r *gin.Engine, store *Store) {
 	api := r.Group("/api")
@@ -29,12 +43,21 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			Semester string `json:"semester"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		body.Name = strings.TrimSpace(body.Name)
+		body.Semester = strings.TrimSpace(body.Semester)
 		if body.Name == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+			return
+		}
+		if len(body.Name) > maxNameLen {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name too long (max 100 characters)"})
+			return
+		}
+		if len(body.Semester) > maxSemesterLen {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "semester too long (max 50 characters)"})
 			return
 		}
 
@@ -44,7 +67,7 @@ func setupRoutes(r *gin.Engine, store *Store) {
 				c.JSON(http.StatusConflict, gin.H{"error": "class already exists"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalErr(c, err)
 			return
 		}
 		c.JSON(http.StatusCreated, gin.H{"id": id})
@@ -57,15 +80,20 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			Archived bool   `json:"archived"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		body.Semester = strings.TrimSpace(body.Semester)
+		if len(body.Semester) > maxSemesterLen {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "semester too long (max 50 characters)"})
 			return
 		}
 		if err := store.UpdateClass(c.Param("id"), body.Semester, body.Archived); err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -77,11 +105,11 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		if err := store.DeleteClass(c.Param("id")); err != nil {
 			switch {
 			case strings.Contains(err.Error(), "not found"):
-				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
 			case strings.Contains(err.Error(), "must be archived"):
-				c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+				c.JSON(http.StatusConflict, gin.H{"error": "class must be archived before deletion"})
 			default:
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				internalErr(c, err)
 			}
 			return
 		}
@@ -109,11 +137,11 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			Completed bool `json:"completed"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		if err := store.ToggleTask(taskID, body.Completed); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -155,7 +183,7 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			Text    string `json:"text"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		cls, ok := store.GetClass(body.ClassID)
@@ -178,7 +206,7 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		}
 		n, err := store.ImportCanvasTasks(body.ClassID, tasks)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			internalErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"imported": n})
@@ -191,7 +219,7 @@ func setupRoutes(r *gin.Engine, store *Store) {
 			BaseYear int    `json:"baseYear"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
 		if body.BaseYear == 0 {
