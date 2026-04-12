@@ -30,7 +30,7 @@
   <nav class="w-52 shrink-0 bg-surface border-r border-border flex flex-col py-6 px-3 gap-1">
     <div class="px-3 mb-6">
       <span class="text-lg font-semibold text-text tracking-tight">classtrack</span>
-      <div class="text-xs text-dim mt-0.5">NVCC</div>
+      <div class="text-xs text-dim mt-0.5">Track your assignments and have fun doing it.</div>
     </div>
 
     {#each nav as item}
