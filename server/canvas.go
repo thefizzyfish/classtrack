@@ -18,9 +18,12 @@ var junkPhrases = []string{
 }
 
 // CanvasTask is a single task parsed from a Canvas calendar paste.
+// HintType carries the task type inferred from the Canvas prefix (e.g. "Discussion Topic ")
+// so it survives prefix-stripping. Empty string means fall back to keyword classification.
 type CanvasTask struct {
-	Date time.Time
-	Text string
+	Date     time.Time
+	Text     string
+	HintType TaskType // set from Canvas prefix; empty = use classifyTask
 }
 
 // parseCanvasPaste parses the tab-separated Canvas calendar export.
@@ -80,23 +83,35 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 			taskText = taskText[:idx]
 		}
 
-		taskText = strings.TrimSpace(stripCanvasPrefix(taskText))
+		hint, taskText := stripCanvasPrefix(taskText)
+		taskText = strings.TrimSpace(taskText)
 		if isJunk(taskText) {
 			continue
 		}
 
-		tasks = append(tasks, CanvasTask{Date: currentDate, Text: taskText})
+		tasks = append(tasks, CanvasTask{Date: currentDate, Text: taskText, HintType: hint})
 	}
 	return tasks, nil
 }
 
-func stripCanvasPrefix(s string) string {
-	for _, p := range []string{"Discussion Topic ", "Assignment ", "Quiz "} {
-		if strings.HasPrefix(s, p) {
-			return strings.TrimPrefix(s, p)
+// stripCanvasPrefix removes the Canvas type prefix from a task name and returns
+// both the inferred TaskType hint and the stripped text.
+// If no known prefix is found, hint is empty and the text is returned unchanged.
+func stripCanvasPrefix(s string) (hint TaskType, text string) {
+	prefixes := []struct {
+		prefix string
+		hint   TaskType
+	}{
+		{"Discussion Topic ", TaskTypeDiscussion},
+		{"Assignment ", TaskTypeAssignment},
+		{"Quiz ", TaskTypeQuiz},
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p.prefix) {
+			return p.hint, strings.TrimPrefix(s, p.prefix)
 		}
 	}
-	return s
+	return "", s
 }
 
 func isJunk(s string) bool {

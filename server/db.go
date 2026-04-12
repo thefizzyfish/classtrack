@@ -311,7 +311,18 @@ func (s *Store) ImportCanvasTasks(classID string, tasks []CanvasTask) (int, erro
 			continue
 		}
 
-		tt := classifyTask(ct.Text)
+		// Use the Canvas prefix hint when available; fall back to keyword classification.
+		// This preserves the type for tasks whose names don't contain type keywords
+		// (e.g. a discussion titled "Welcome to Module 8" has no "discussion" keyword).
+		tt := ct.HintType
+		if tt == "" {
+			tt = classifyTask(ct.Text)
+		}
+		// Keyword classification can still upgrade a hint — e.g. a "Quiz" prefix with
+		// HONORLOCK in the name should be an exam.
+		if tt != TaskTypeExam && classifyTask(ct.Text) == TaskTypeExam {
+			tt = TaskTypeExam
+		}
 		maxOrder++
 		_, err := tx.Exec(
 			`INSERT INTO tasks (class_id, text, task_type, points, due_date, week_date, sort_order)
