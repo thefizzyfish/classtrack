@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0f1117;
+    color: #e2e8f0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #1a1d27;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2d3e;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4a5068;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-border rounded-xl p-5;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-150 cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply btn bg-indigo-600 hover:bg-indigo-500 text-white;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-border text-dim hover:text-text border border-border;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+  }
+
+  .badge-exam       { @apply badge bg-red-900/50 text-red-300 border border-red-800/50; }
+  .badge-quiz       { @apply badge bg-yellow-900/50 text-yellow-300 border border-yellow-800/50; }
+  .badge-discussion { @apply badge bg-blue-900/50 text-blue-300 border border-blue-800/50; }
+  .badge-assignment { @apply badge bg-emerald-900/50 text-emerald-300 border border-emerald-800/50; }
+  .badge-other      { @apply badge bg-muted/30 text-dim border border-border; }
+}

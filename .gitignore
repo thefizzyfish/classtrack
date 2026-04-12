@@ -1,0 +1,17 @@
+# Go binary
+server/classtrack
+server/*.tmp
+
+# Node / SvelteKit
+node_modules/
+web/build/
+web/.svelte-kit/
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+/tmp/
