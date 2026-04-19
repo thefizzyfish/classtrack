@@ -140,7 +140,7 @@ func (s *Store) loadClasses(includeArchived bool) []Class {
 	}
 	defer rows.Close()
 
-	var classes []Class
+	classes := make([]Class, 0)
 	for rows.Next() {
 		var c Class
 		var archivedInt int

@@ -1,6 +1,11 @@
 # Go binary
 server/classtrack
 server/*.tmp
+classtrack-linux
+
+# Embedded static files (populated by build.sh, not committed)
+server/static/*
+!server/static/.gitkeep
 
 # Node / SvelteKit
 node_modules/

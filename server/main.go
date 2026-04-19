@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -53,13 +54,29 @@ func main() {
 
 	setupRoutes(r, store)
 
-	// Serve built SvelteKit app if present (production single-binary mode)
-	webBuild := filepath.Join("..", "web", "build")
-	if _, err := os.Stat(webBuild); err == nil {
-		r.Static("/assets", filepath.Join(webBuild, "assets"))
-		r.StaticFile("/", filepath.Join(webBuild, "index.html"))
+	// Serve embedded SvelteKit app (production single-binary mode).
+	// static/ is populated by build.sh before compilation — empty in dev,
+	// which is fine since start.sh runs the SvelteKit dev server separately.
+	if _, err := staticFiles.Open("static/index.html"); err == nil {
+		sub, _ := fs.Sub(staticFiles, "static")
+		httpFS := http.FS(sub)
 		r.NoRoute(func(c *gin.Context) {
-			c.File(filepath.Join(webBuild, "index.html"))
+			path := c.Request.URL.Path[1:] // strip leading /
+			// Serve the file if it exists in the embedded FS (JS, CSS, images, etc.)
+			if path != "" {
+				if f, err := sub.Open(path); err == nil {
+					f.Close()
+					c.FileFromFS(path, httpFS)
+					return
+				}
+			}
+			// Fall back to index.html for all SPA routes
+			data, err := fs.ReadFile(sub, "index.html")
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 		})
 	}
 

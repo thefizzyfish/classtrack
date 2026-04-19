@@ -125,13 +125,13 @@ func computeBurndown(classes []Class) []BurndownPoint {
 	}
 
 	if len(entries) == 0 || start.IsZero() {
-		return nil
+		return []BurndownPoint{}
 	}
 
 	total := len(entries)
 	today := localToday()
 
-	var points []BurndownPoint
+	points := make([]BurndownPoint, 0)
 	for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
 		completedByD := 0
 		for _, e := range entries {
@@ -169,7 +169,7 @@ func computeHeatmap(classes []Class) []HeatmapPoint {
 		}
 	}
 
-	var points []HeatmapPoint
+	points := make([]HeatmapPoint, 0)
 	for date, count := range countMap {
 		points = append(points, HeatmapPoint{
 			Date:   date,
