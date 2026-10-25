@@ -26,6 +26,7 @@ export const api = {
   getSummary:      ()             => req('GET',   '/stats/summary'),
   importPreview:   (text, year)   => req('POST',  '/import/preview', { text, baseYear: year }),
   importConfirm:   (classId, text)=> req('POST',  '/import', { classId, text }),
+  reschedule:      (classId, text, apply) => req('POST', `/classes/${classId}/reschedule`, { text, apply }),
 };
 
 // Class color palette — indexed by position in classes array

@@ -11,6 +11,10 @@
   let error = '';
   let success = '';
 
+  // 'add' inserts new tasks; 'reschedule' moves due dates of existing tasks by name
+  let mode = 'add';
+  let reschedule = null;
+
   // new class form
   let showNewClass = false;
   let newClassName = '';
@@ -51,11 +55,23 @@
     }
   }
 
+  function setMode(m) {
+    mode = m;
+    preview = null;
+    reschedule = null;
+    success = '';
+  }
+
   async function parsePreview() {
     if (!pasteText.trim()) return;
     loading = true;
     error = '';
+    success = '';
     try {
+      if (mode === 'reschedule') {
+        reschedule = await api.reschedule(selectedClass, pasteText, false);
+        return;
+      }
       const cls = classes.find(c => c.id === selectedClass);
       const year = cls?.created ? parseInt(cls.created.slice(0, 4)) : new Date().getFullYear();
       preview = await api.importPreview(pasteText, year);
@@ -76,6 +92,22 @@
       success = `Imported ${res.imported} task${res.imported !== 1 ? 's' : ''} into ${selectedClass}.`;
       pasteText = '';
       preview = null;
+    } catch (e) {
+      error = e.message;
+    } finally {
+      importing = false;
+    }
+  }
+
+  async function doReschedule() {
+    if (!reschedule?.moved.length || !selectedClass) return;
+    importing = true;
+    error = '';
+    try {
+      const res = await api.reschedule(selectedClass, pasteText, true);
+      success = `Moved ${res.moved.length} task${res.moved.length !== 1 ? 's' : ''} in ${selectedClass}. Completion progress kept.`;
+      pasteText = '';
+      reschedule = null;
     } catch (e) {
       error = e.message;
     } finally {
@@ -169,6 +201,25 @@
       {/if}
     </div>
 
+    <!-- Mode -->
+    <div>
+      <label class="block text-xs text-dim uppercase tracking-wide mb-2">Mode</label>
+      <div class="flex gap-2">
+        <button class={mode === 'add' ? 'btn-primary text-sm' : 'btn-ghost text-sm'} on:click={() => setMode('add')}>
+          Add new tasks
+        </button>
+        <button class={mode === 'reschedule' ? 'btn-primary text-sm' : 'btn-ghost text-sm'} on:click={() => setMode('reschedule')}>
+          Update due dates
+        </button>
+      </div>
+      {#if mode === 'reschedule'}
+        <p class="text-xs text-dim mt-2">
+          Matches the paste to this class's existing tasks by name and moves their due dates.
+          Completion progress is kept. Nothing is added or deleted. Run "Add new tasks" afterwards to pick up anything new.
+        </p>
+      {/if}
+    </div>
+
     <!-- Paste area -->
     <div>
       <label class="block text-xs text-dim uppercase tracking-wide mb-2">Canvas Calendar Paste</label>
@@ -198,11 +249,59 @@
           {importing ? 'Importing…' : `Import ${preview.length} task${preview.length !== 1 ? 's' : ''}`}
         </button>
       {/if}
-      {#if preview !== null}
-        <button class="btn-ghost" on:click={() => preview = null}>Clear</button>
+      {#if reschedule?.moved.length}
+        <button
+          class="btn-primary bg-emerald-700 hover:bg-emerald-600"
+          on:click={doReschedule}
+          disabled={importing}
+        >
+          {importing ? 'Updating…' : `Move ${reschedule.moved.length} task${reschedule.moved.length !== 1 ? 's' : ''}`}
+        </button>
+      {/if}
+      {#if preview !== null || reschedule !== null}
+        <button class="btn-ghost" on:click={() => { preview = null; reschedule = null; }}>Clear</button>
       {/if}
     </div>
   </div>
+
+  <!-- Reschedule preview -->
+  {#if reschedule !== null}
+    <div class="text-sm text-dim mb-3">
+      {reschedule.moved.length} to move · {reschedule.unchanged} already on the right date
+    </div>
+    {#if reschedule.moved.length}
+      <div class="space-y-1 mb-6">
+        {#each reschedule.moved as m}
+          <div class="flex items-center gap-3 px-3 py-1.5 bg-surface border border-border rounded-lg text-sm">
+            <span class="text-dim whitespace-nowrap">{fmtDate(m.from)} → <span class="text-indigo-300">{fmtDate(m.to)}</span></span>
+            <span class="text-text flex-1">{m.text}</span>
+            {#if m.completed}<span class="text-xs text-emerald-400">done</span>{/if}
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="text-dim text-sm italic mb-6">No due dates to change.</div>
+    {/if}
+
+    {#each [
+      ['Ambiguous (skipped)', reschedule.ambiguous.map(a => ({ text: a }))],
+      ['In paste but not in class (not added)', reschedule.new],
+      ['In class but not in paste (left as-is)', reschedule.missing],
+    ] as [title, items]}
+      {#if items.length}
+        <details class="mb-3">
+          <summary class="text-xs text-dim uppercase tracking-wide cursor-pointer">{title}: {items.length}</summary>
+          <div class="space-y-1 mt-2">
+            {#each items as it}
+              <div class="px-3 py-1 text-sm text-dim">
+                {#if it.dueDate}<span class="mr-2">{fmtDate(it.dueDate)}</span>{/if}{it.text}
+              </div>
+            {/each}
+          </div>
+        </details>
+      {/if}
+    {/each}
+  {/if}
 
   <!-- Preview -->
   {#if preview !== null}

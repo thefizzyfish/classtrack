@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -332,6 +333,130 @@ func (s *Store) ToggleTask(taskID int64, completed bool) error {
 		taskID, eventType,
 	)
 	return err
+}
+
+// RescheduleMove is a task whose due date changes during a reschedule.
+type RescheduleMove struct {
+	ID        int64  `json:"id"`
+	Text      string `json:"text"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Completed bool   `json:"completed"`
+}
+
+// RescheduleItem is a task referenced by a reschedule that was not moved.
+type RescheduleItem struct {
+	ID      int64  `json:"id,omitempty"`
+	Text    string `json:"text"`
+	DueDate string `json:"dueDate"`
+}
+
+type RescheduleResult struct {
+	Moved     []RescheduleMove `json:"moved"`
+	Unchanged int              `json:"unchanged"`
+	New       []RescheduleItem `json:"new"`       // in the paste, not in the class (not inserted)
+	Missing   []RescheduleItem `json:"missing"`   // in the class, not in the paste (left as-is)
+	Ambiguous []string         `json:"ambiguous"` // name appears a different number of times (skipped)
+	Applied   bool             `json:"applied"`
+}
+
+// normalizeTaskText makes matching tolerant of case and whitespace differences.
+func normalizeTaskText(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// RescheduleCanvasTasks matches a fresh Canvas paste against a class's existing
+// top-level tasks by name and updates due_date/week_date in place. Task IDs are
+// kept, so completion history in task_events is untouched. No event is written:
+// completion is derived from the latest event, so a "rescheduled" event would
+// un-complete finished tasks.
+//
+// Names that repeat (e.g. a weekly "Office Hour") are paired in date order, but
+// only when the paste and the class have the same count; otherwise the name is
+// reported as ambiguous and skipped. Subtasks are not moved.
+// With apply=false the transaction is rolled back and the result is a preview.
+func (s *Store) RescheduleCanvasTasks(classID string, tasks []CanvasTask, apply bool) (RescheduleResult, error) {
+	res := RescheduleResult{
+		Moved: []RescheduleMove{}, New: []RescheduleItem{},
+		Missing: []RescheduleItem{}, Ambiguous: []string{},
+	}
+
+	existing, err := s.loadTasksForClass(classID)
+	if err != nil {
+		return res, err
+	}
+
+	// Group both sides by normalized name, preserving date order.
+	// loadTasksForClass already orders by due_date; sort the paste the same way.
+	have := make(map[string][]Task)
+	for _, t := range existing {
+		k := normalizeTaskText(t.Text)
+		have[k] = append(have[k], t)
+	}
+	var order []string
+	want := make(map[string][]CanvasTask)
+	sorted := append([]CanvasTask(nil), tasks...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Date.Before(sorted[j].Date) })
+	for _, ct := range sorted {
+		k := normalizeTaskText(ct.Text)
+		if _, seen := want[k]; !seen {
+			order = append(order, k)
+		}
+		want[k] = append(want[k], ct)
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer tx.Rollback()
+
+	for _, k := range order {
+		w, h := want[k], have[k]
+		switch {
+		case len(h) == 0:
+			for _, ct := range w {
+				res.New = append(res.New, RescheduleItem{Text: ct.Text, DueDate: ct.Date.Format("2006-01-02")})
+			}
+			continue
+		case len(h) != len(w):
+			res.Ambiguous = append(res.Ambiguous, fmt.Sprintf(
+				"%s (%d in class, %d in paste)", w[0].Text, len(h), len(w)))
+			continue
+		}
+		for i, ct := range w {
+			t := h[i]
+			due := ct.Date.Format("2006-01-02")
+			if t.DueDate == due {
+				res.Unchanged++
+				continue
+			}
+			if _, err := tx.Exec(
+				`UPDATE tasks SET due_date=?, week_date=? WHERE id=? AND class_id=?`,
+				due, sundayOfWeek(ct.Date).Format("2006-01-02"), t.ID, classID,
+			); err != nil {
+				return res, err
+			}
+			res.Moved = append(res.Moved, RescheduleMove{
+				ID: t.ID, Text: t.Text, From: t.DueDate, To: due, Completed: t.Completed,
+			})
+		}
+	}
+
+	for _, t := range existing {
+		if _, ok := want[normalizeTaskText(t.Text)]; !ok {
+			res.Missing = append(res.Missing, RescheduleItem{ID: t.ID, Text: t.Text, DueDate: t.DueDate})
+		}
+	}
+
+	if !apply {
+		return res, nil // deferred Rollback discards the updates
+	}
+	if err := tx.Commit(); err != nil {
+		return res, err
+	}
+	res.Applied = true
+	return res, nil
 }
 
 // ImportCanvasTasks bulk-inserts parsed Canvas tasks, skipping exact duplicates

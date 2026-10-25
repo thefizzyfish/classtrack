@@ -212,6 +212,36 @@ func setupRoutes(r *gin.Engine, store *Store) {
 		c.JSON(http.StatusOK, gin.H{"imported": n})
 	})
 
+	// POST /api/classes/:id/reschedule  body: {"text": "<canvas paste>", "apply": false}
+	// Matches the paste to existing tasks by name and moves their due dates,
+	// keeping completion history. apply=false (default) returns a preview only.
+	api.POST("/classes/:id/reschedule", func(c *gin.Context) {
+		var body struct {
+			Text  string `json:"text"`
+			Apply bool   `json:"apply"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		classID := c.Param("id")
+		if _, ok := store.GetClass(classID); !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
+			return
+		}
+		tasks, err := parseCanvasPaste(body.Text, time.Now().Year())
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		res, err := store.RescheduleCanvasTasks(classID, tasks, body.Apply)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, res)
+	})
+
 	// POST /api/import/preview — parse without writing
 	api.POST("/import/preview", func(c *gin.Context) {
 		var body struct {

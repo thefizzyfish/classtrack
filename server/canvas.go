@@ -12,6 +12,10 @@ var canvasDateRe = regexp.MustCompile(
 	`^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4})`,
 )
 
+// canvasTimeContRe matches the wrapped second line of a calendar event's time
+// range ("1pm\nto 2pm"), which would otherwise be parsed as its own task.
+var canvasTimeContRe = regexp.MustCompile(`(?i)^to\s+\d{1,2}(:\d{2})?\s*(am|pm)$`)
+
 var junkPhrases = []string{
 	"refund date", "withdrawal", "initial post due", "last day",
 	"assignment start", "assignment end", "nvrk",
@@ -38,7 +42,7 @@ func parseCanvasPaste(raw string, baseYear int) ([]CanvasTask, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		if trimmed == "" || canvasTimeContRe.MatchString(trimmed) {
 			continue
 		}
 
